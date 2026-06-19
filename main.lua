@@ -89,9 +89,16 @@ function Komga:_runSync()
     end)
 end
 
--- Fires whenever WiFi connects (per the "every WiFi connect" decision).
--- Deferred so it never blocks startup; the sync itself runs in-process.
+local DEFAULT_SYNC_INTERVAL = 24 * 3600 -- seconds
+
+-- Fires whenever WiFi connects. A full sync (downloads + reconcile-all) only
+-- runs if it's been at least the configured interval since the last one, so we
+-- don't re-sync on every reconnect (closing a book turns WiFi on, too). Per-book
+-- progress is already pushed immediately by onCloseDocument; manual "Sync now"
+-- always runs regardless of the interval.
 function Komga:onNetworkConnected()
+    local interval = self.store:config("sync_interval") or DEFAULT_SYNC_INTERVAL
+    if os.time() - self.store:lastSyncTs() < interval then return end
     UIManager:scheduleIn(3, function() self:syncNow() end)
 end
 
@@ -140,6 +147,7 @@ function Komga:onCloseDocument()
 end
 
 function Komga:_settingsDialog()
+    local interval_hours = (self.store:config("sync_interval") or DEFAULT_SYNC_INTERVAL) / 3600
     local dialog
     dialog = MultiInputDialog:new{
         title = _("Komga settings"),
@@ -150,6 +158,8 @@ function Komga:_settingsDialog()
               hint = _("X-API-Key") },
             { description = _("Download folder"), text = self.store:config("download_dir") or "",
               hint = "/mnt/onboard/komga" },
+            { description = _("Min hours between WiFi syncs"), text = tostring(interval_hours),
+              input_type = "number", hint = "24" },
         },
         buttons = {{
             { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
@@ -158,6 +168,8 @@ function Komga:_settingsDialog()
                 self.store:setConfig("server_url", f[1])
                 self.store:setConfig("api_key", f[2])
                 self.store:setConfig("download_dir", f[3])
+                local hours = tonumber(f[4]) or 24
+                self.store:setConfig("sync_interval", math.floor(hours * 3600))
                 UIManager:close(dialog)
                 UIManager:show(InfoMessage:new{ text = _("Komga settings saved.") })
             end },
