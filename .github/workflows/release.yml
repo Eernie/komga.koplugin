@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.1"
+      - uses: leafo/gh-actions-luarocks@v4
+      - name: Install busted
+        run: luarocks install busted
+      - name: Run unit tests
+        run: busted
+
+      - name: Build installable plugin zip
+        run: |
+          mkdir -p dist/komga.koplugin/komga
+          cp _meta.lua main.lua dist/komga.koplugin/
+          cp komga/*.lua dist/komga.koplugin/komga/
+          (cd dist && zip -r komga.koplugin.zip komga.koplugin)
+          unzip -l dist/komga.koplugin.zip
+
+      - name: Publish GitHub Release with the zip
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/komga.koplugin.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true

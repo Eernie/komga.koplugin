@@ -1,0 +1,4 @@
+dist/
+*.zip
+.luarocks/
+lua_modules/

@@ -9,9 +9,13 @@ sync reading progress bi-directionally with your Komga server.
   (Komga → Account Settings → Generate API Key).
 
 ## Install
-1. Copy the whole `komga.koplugin` folder into KOReader's `plugins/` directory:
+1. Download `komga.koplugin.zip` from the [latest release](../../releases/latest).
+2. Unzip it — you'll get a `komga.koplugin` folder.
+3. Copy that `komga.koplugin` folder into KOReader's `plugins/` directory:
    - Kobo: `.adds/koreader/plugins/komga.koplugin`
-2. Restart KOReader.
+4. Restart KOReader.
+
+(Or clone this repo and copy `_meta.lua`, `main.lua`, and `komga/` into a `komga.koplugin` folder yourself.)
 
 ## Configure
 Top menu → **Komga Sync**:
