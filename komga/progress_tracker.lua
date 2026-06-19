@@ -1,9 +1,9 @@
 local DocSettings = require("docsettings")
 local lfs = require("libs/libkoreader-lfs")
 
--- KOReader stores the current page for paged documents (CBZ/PDF) under this
--- key. VERIFY ON DEVICE (Task 12): open a managed CBZ, turn pages, close it,
--- and inspect its .sdr/metadata.lua for the actual key; adjust if needed.
+-- KOReader stores the current 1-based page for paged documents (CBZ/PDF) under
+-- this key. Verified on-device: a CBZ sidecar (metadata.cbz.lua) contains
+-- ["last_page"] alongside ["doc_pages"].
 local PAGE_KEY = "last_page"
 
 local Tracker = {}
@@ -22,8 +22,10 @@ function Tracker:localState(rec)
     local ds = DocSettings:open(rec.filePath)
     local page = ds:readSetting(PAGE_KEY)
     if not page then return nil end
-    local sidecar = DocSettings:getSidecarFile(rec.filePath)
-    local ts = lfs.attributes(sidecar, "modification") or 0
+    -- findSidecarFile returns the metadata.*.lua path; its mtime marks when
+    -- progress was last saved (i.e. when the book was last read).
+    local sidecar = DocSettings:findSidecarFile(rec.filePath)
+    local ts = (sidecar and lfs.attributes(sidecar, "modification")) or 0
     return { page = page, ts = ts }
 end
 
