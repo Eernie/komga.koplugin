@@ -112,16 +112,31 @@ function Komga:onCloseDocument()
     if not path then return end
     local rec = self:_bookByPath(path)
     if not rec then return end
-    if not NetworkMgr:isOnline() then return end
+    local server_url = self.store:config("server_url")
+    local api_key = self.store:config("api_key")
+    if not server_url or not api_key then return end
     local ls = self.tracker:localState(rec)
     if not ls then return end
+
+    -- Capture everything up front: by the time WiFi connects and the callback
+    -- runs, the reader (and this plugin instance) may already be torn down.
+    local bookId, page = rec.id, ls.page
     local completed = rec.pageCount ~= nil and ls.page >= rec.pageCount
-    local ok = pcall(function()
-        if self:_api():set_progress(rec.id, ls.page, completed) then
-            self.store:markSynced(rec.id, { page = ls.page, ts = ls.ts, completed = completed })
-        end
-    end)
-    if not ok then Logger.info("KOMGA push-on-close failed for " .. tostring(rec.id)) end
+    local function push()
+        local ok, err = pcall(function()
+            Api.new(Client.new(server_url, api_key)):set_progress(bookId, page, completed)
+        end)
+        Logger.info("KOMGA close-push book=" .. tostring(bookId) .. " page=" .. tostring(page)
+            .. " ok=" .. tostring(ok) .. " err=" .. tostring(err))
+    end
+
+    Logger.info("KOMGA onCloseDocument: managed book=" .. tostring(bookId) .. " page=" .. tostring(page))
+    if NetworkMgr:isOnline() then
+        push()
+    else
+        -- User chose: turn WiFi on to push on close.
+        NetworkMgr:turnOnWifiAndWaitForConnection(push)
+    end
 end
 
 function Komga:_settingsDialog()
