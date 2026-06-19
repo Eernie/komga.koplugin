@@ -2,6 +2,7 @@ local http = require("socket.http")
 local https = require("ssl.https")
 local ltn12 = require("ltn12")
 local JSON = require("rapidjson")
+local JsonUtil = require("komga.json_util")
 
 local Client = {}
 Client.__index = Client
@@ -47,7 +48,8 @@ function Client:get_json(path)
     end
     local ok, decoded = pcall(JSON.decode, body)
     if not ok then return nil, "json decode error" end
-    return decoded
+    -- rapidjson decodes JSON null to a truthy userdata sentinel; normalize to nil.
+    return JsonUtil.denull(decoded, JSON.null)
 end
 
 function Client:patch_json(path, tbl)
