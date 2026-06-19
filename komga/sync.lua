@@ -25,28 +25,53 @@ local function downloadNew(api, store, fs)
     end
 end
 
-local function reconcileAll(api, store, tracker)
-    for id, rec in pairs(store:books()) do
-        local book = api:get_book(id)
-        local remote = nil
-        if book and book.remote then
-            remote = {
-                page = book.remote.page,
-                completed = book.remote.completed,
-                ts = Time.parse_iso8601(book.remote.lastModified),
-            }
+local function reconcileOne(api, store, tracker, log, id, rec)
+    local book = api:get_book(id)
+    local remote = nil
+    if book and book.remote then
+        remote = {
+            page = book.remote.page,
+            completed = book.remote.completed,
+            ts = Time.parse_iso8601(book.remote.lastModified),
+        }
+    end
+    local localState = tracker:localState(rec)
+    local action = Reconcile.decide(rec, localState, remote)
+    if localState or remote then
+        log(string.format("reconcile %s '%s': local=%s@%s remote=%s@%s synced=%s -> %s",
+            tostring(id), tostring(rec.title),
+            localState and tostring(localState.page) or "-", localState and tostring(localState.ts) or "-",
+            remote and tostring(remote.page) or "-", remote and tostring(remote.ts) or "-",
+            tostring(rec.syncedTs), action.type))
+    end
+    if action.type == "push" then
+        if api:set_progress(id, action.page, action.completed) then
+            store:markSynced(id, { page = action.page, ts = localState.ts, completed = action.completed })
         end
-        local localState = tracker:localState(rec)
-        local action = Reconcile.decide(rec, localState, remote)
-        if action.type == "push" then
-            if api:set_progress(id, action.page, action.completed) then
-                store:markSynced(id, { page = action.page, ts = localState.ts, completed = action.completed })
-            end
-        elseif action.type == "pull" then
-            tracker:applyPage(rec, action.page)
-            store:markSynced(id, { page = action.page, ts = remote.ts, completed = action.completed })
+    elseif action.type == "pull" then
+        tracker:applyPage(rec, action.page)
+        store:markSynced(id, { page = action.page, ts = remote.ts, completed = action.completed })
+    end
+    return action.type
+end
+
+local function reconcileAll(api, store, tracker, log)
+    local n_push, n_pull, n_noop, n_err = 0, 0, 0, 0
+    for id, rec in pairs(store:books()) do
+        -- Isolate each book so one failure can't abort the whole reconcile.
+        local ok, result = pcall(reconcileOne, api, store, tracker, log, id, rec)
+        if not ok then
+            n_err = n_err + 1
+            log(string.format("reconcile ERROR %s '%s': %s", tostring(id), tostring(rec.title), tostring(result)))
+        elseif result == "push" then
+            n_push = n_push + 1
+        elseif result == "pull" then
+            n_pull = n_pull + 1
+        else
+            n_noop = n_noop + 1
         end
     end
+    log(string.format("reconcile summary: push=%d pull=%d noop=%d err=%d", n_push, n_pull, n_noop, n_err))
 end
 
 local function cleanup(store, fs)
@@ -59,12 +84,15 @@ local function cleanup(store, fs)
     end
 end
 
--- deps = { api, store, tracker, fs, now }
+-- deps = { api, store, tracker, fs, now, log? }
 function Sync.run(deps)
+    local log = deps.log or function() end
+    log("sync start")
     downloadNew(deps.api, deps.store, deps.fs)
-    reconcileAll(deps.api, deps.store, deps.tracker)
+    reconcileAll(deps.api, deps.store, deps.tracker, log)
     cleanup(deps.store, deps.fs)
     deps.store:setLastSyncTs(deps.now())
+    log("sync done")
 end
 
 return Sync

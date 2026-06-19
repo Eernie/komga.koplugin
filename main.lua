@@ -6,6 +6,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local Menu = require("ui/widget/menu")
 local Trapper = require("ui/trapper")
+local Logger = require("logger")
 local lfs = require("libs/libkoreader-lfs")
 local util = require("util")
 local _ = require("gettext")
@@ -70,6 +71,7 @@ function Komga:syncNow()
                 Sync.run({
                     api = self:_api(), store = self.store, tracker = self.tracker,
                     fs = realFs(), now = function() return os.time() end,
+                    log = function(m) Logger.info("KOMGA " .. m) end,
                 })
             end)
             return ok and "ok" or ("err:" .. tostring(err))
