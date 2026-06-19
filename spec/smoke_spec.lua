@@ -1,0 +1,10 @@
+local H = require("spec.helpers")
+
+describe("test harness", function()
+    it("provides a fake backend", function()
+        local b = H.fake_backend({ x = 1 })
+        assert.equals(1, b:readSetting("x"))
+        b:saveSetting("x", 2)
+        assert.equals(2, b:readSetting("x"))
+    end)
+end)
