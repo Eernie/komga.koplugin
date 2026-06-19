@@ -3,6 +3,7 @@ local https = require("ssl.https")
 local ltn12 = require("ltn12")
 local JSON = require("rapidjson")
 local logger = require("logger")
+local socketutil = require("socketutil")
 local JsonUtil = require("komga.json_util")
 
 local Client = {}
@@ -32,6 +33,7 @@ function Client:_request(method, path, bodyTbl)
         headers["Content-Type"] = "application/json"
         headers["Content-Length"] = tostring(#reqBody)
     end
+    socketutil:set_timeout(socketutil.LARGE_BLOCK_TIMEOUT, socketutil.LARGE_TOTAL_TIMEOUT)
     local _, status = self:_transport(url).request({
         url = url,
         method = method,
@@ -39,6 +41,7 @@ function Client:_request(method, path, bodyTbl)
         source = reqBody and ltn12.source.string(reqBody) or nil,
         sink = ltn12.sink.table(respChunks),
     })
+    socketutil:reset_timeout()
     return status, table.concat(respChunks)
 end
 
@@ -68,12 +71,14 @@ function Client:download(path, destPath)
     local url = self.baseUrl .. path
     local f, ferr = io.open(destPath, "wb")
     if not f then return false, ferr end
+    socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT, socketutil.FILE_TOTAL_TIMEOUT)
     local _, status = self:_transport(url).request({
         url = url,
         method = "GET",
         headers = { ["X-API-Key"] = self.apiKey },
         sink = ltn12.sink.file(f),
     })
+    socketutil:reset_timeout()
     if type(status) ~= "number" or status < 200 or status >= 300 then
         os.remove(destPath)
         return false, tostring(status)

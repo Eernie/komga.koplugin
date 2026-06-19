@@ -3,7 +3,7 @@ local LuaSettings = require("luasettings")
 local DataStorage = require("datastorage")
 local UIManager = require("ui/uimanager")
 local InfoMessage = require("ui/widget/infomessage")
-local InputDialog = require("ui/widget/inputdialog")
+local MultiInputDialog = require("ui/widget/multiinputdialog")
 local Menu = require("ui/widget/menu")
 local Trapper = require("ui/trapper")
 local Logger = require("logger")
@@ -90,21 +90,61 @@ function Komga:_runSync()
 end
 
 -- Fires whenever WiFi connects (per the "every WiFi connect" decision).
--- Deferred so it never blocks startup; the sync itself runs in a subprocess.
+-- Deferred so it never blocks startup; the sync itself runs in-process.
 function Komga:onNetworkConnected()
     UIManager:scheduleIn(3, function() self:syncNow() end)
 end
 
-function Komga:_promptValue(title, key)
+function Komga:_bookByPath(path)
+    for _, rec in pairs(self.store:books()) do
+        if rec.filePath == path then return rec end
+    end
+    return nil
+end
+
+-- When a managed comic is closed, push just that book's progress to Komga right
+-- away -- but only if already online (no WiFi prompt). KOReader has already
+-- saved the sidecar by the time CloseDocument fires, so the page is current.
+-- If offline, the next full sync picks it up.
+function Komga:onCloseDocument()
+    local doc = self.ui and self.ui.document
+    local path = doc and doc.file
+    if not path then return end
+    local rec = self:_bookByPath(path)
+    if not rec then return end
+    if not NetworkMgr:isOnline() then return end
+    local ls = self.tracker:localState(rec)
+    if not ls then return end
+    local completed = rec.pageCount ~= nil and ls.page >= rec.pageCount
+    local ok = pcall(function()
+        if self:_api():set_progress(rec.id, ls.page, completed) then
+            self.store:markSynced(rec.id, { page = ls.page, ts = ls.ts, completed = completed })
+        end
+    end)
+    if not ok then Logger.info("KOMGA push-on-close failed for " .. tostring(rec.id)) end
+end
+
+function Komga:_settingsDialog()
     local dialog
-    dialog = InputDialog:new{
-        title = title,
-        input = self.store:config(key) or "",
+    dialog = MultiInputDialog:new{
+        title = _("Komga settings"),
+        fields = {
+            { description = _("Server URL"), text = self.store:config("server_url") or "",
+              hint = "https://komga.example.com" },
+            { description = _("API key"), text = self.store:config("api_key") or "",
+              hint = _("X-API-Key") },
+            { description = _("Download folder"), text = self.store:config("download_dir") or "",
+              hint = "/mnt/onboard/komga" },
+        },
         buttons = {{
-            { text = _("Cancel"), id = "cancel", callback = function() UIManager:close(dialog) end },
-            { text = _("Save"), is_enter_default = true, callback = function()
-                self.store:setConfig(key, dialog:getInputText())
+            { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
+            { text = _("Save"), callback = function()
+                local f = dialog:getFields()
+                self.store:setConfig("server_url", f[1])
+                self.store:setConfig("api_key", f[2])
+                self.store:setConfig("download_dir", f[3])
                 UIManager:close(dialog)
+                UIManager:show(InfoMessage:new{ text = _("Komga settings saved.") })
             end },
         }},
     }
@@ -152,9 +192,7 @@ function Komga:addToMainMenu(menu_items)
         sub_item_table = {
             { text = _("Sync now"), callback = function() self:syncNow() end },
             { text = _("Manage series"), callback = function() self:_manageSeries() end },
-            { text = _("Server URL"), callback = function() self:_promptValue(_("Komga server URL"), "server_url") end },
-            { text = _("API key"), callback = function() self:_promptValue(_("Komga API key"), "api_key") end },
-            { text = _("Download folder"), callback = function() self:_promptValue(_("Download folder"), "download_dir") end },
+            { text = _("Settings"), callback = function() self:_settingsDialog() end },
         },
     }
 end
