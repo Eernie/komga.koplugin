@@ -37,25 +37,21 @@ describe("Api endpoints", function()
         assert.equals("s1", series[1].id)
     end)
 
-    it("lists unread books for a series as normalized books", function()
+    it("lists all books in a series as normalized books with progress", function()
         local client = H.fake_client({
-            ["/api/v1/series/s1/books?read_status=UNREAD&unpaged=true"] =
-                { content = { { id = "b1", seriesId = "s1", name = "n", media = { pagesCount = 5 } } } },
+            ["/api/v1/series/s1/books?unpaged=true"] = { content = {
+                { id = "b1", seriesId = "s1", name = "n", media = { pagesCount = 5 } },
+                { id = "b2", seriesId = "s1", name = "m", media = { pagesCount = 8 },
+                  readProgress = { page = 3, completed = false, lastModified = "2024-01-15T10:30:00Z" } },
+            } },
         })
         local api = Api.new(client)
-        local books = api:unread_books("s1")
-        assert.equals(1, #books)
+        local books = api:series_books("s1")
+        assert.equals(2, #books)
         assert.equals("b1", books[1].id)
         assert.equals(5, books[1].pageCount)
-    end)
-
-    it("gets a single normalized book", function()
-        local client = H.fake_client({
-            ["/api/v1/books/b1"] = { id = "b1", name = "n", media = { pagesCount = 3 } },
-        })
-        local api = Api.new(client)
-        local b = api:get_book("b1")
-        assert.equals("b1", b.id)
+        assert.is_nil(books[1].remote)
+        assert.equals(3, books[2].remote.page)
     end)
 
     it("PATCHes read-progress with page and completed", function()

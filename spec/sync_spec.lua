@@ -2,17 +2,14 @@ local Sync = require("komga.sync")
 local Store = require("komga.store")
 local H = require("spec.helpers")
 
--- A fake api with controllable responses (already-normalized books).
+-- A fake api. opts.series maps seriesId -> list of normalized books (each may
+-- carry a `remote` table), as returned by api:series_books.
 local function fake_api(opts)
     return {
         calls = {},
-        unread_books = function(self, seriesId)
-            table.insert(self.calls, { op = "unread_books", seriesId = seriesId })
-            return opts.unread[seriesId] or {}
-        end,
-        get_book = function(self, id)
-            table.insert(self.calls, { op = "get_book", id = id })
-            return opts.books and opts.books[id] or nil
+        series_books = function(self, seriesId)
+            table.insert(self.calls, { op = "series_books", seriesId = seriesId })
+            return (opts.series and opts.series[seriesId]) or {}
         end,
         set_progress = function(self, id, page, completed)
             table.insert(self.calls, { op = "set_progress", id = id, page = page, completed = completed })
@@ -46,8 +43,7 @@ describe("Sync.run", function()
         store:setConfig("download_dir", "/Komga")
         store:subscribe("s1")
         local api = fake_api({
-            unread = { s1 = { { id = "b1", seriesId = "s1", seriesName = "Saga", title = "Vol 1", pageCount = 10 } } },
-            books = { b1 = { id = "b1", remote = nil } },
+            series = { s1 = { { id = "b1", seriesId = "s1", seriesName = "Saga", title = "Vol 1", pageCount = 10, remote = nil } } },
         })
         local fs = H.fake_fs()
         Sync.run({ api = api, store = store, tracker = fake_tracker({}), fs = fs, now = function() return 1000 end })
@@ -66,8 +62,8 @@ describe("Sync.run", function()
         store:upsertBook({ id = "b1", seriesId = "s1", seriesName = "Saga", title = "V1",
             filePath = "/Komga/Saga/V1.cbz", pageCount = 10, syncedPage = 1, syncedTs = 100 })
         local api = fake_api({
-            unread = {},
-            books = { b1 = { id = "b1", remote = { page = 6, completed = false, lastModified = "2024-01-15T10:30:00Z" } } },
+            series = { s1 = { { id = "b1", seriesId = "s1",
+                remote = { page = 6, completed = false, lastModified = "2024-01-15T10:30:00Z" } } } },
         })
         local tracker = fake_tracker({ b1 = nil }) -- no local read since sync
         Sync.run({ api = api, store = store, tracker = tracker, fs = H.fake_fs(), now = function() return 1000 end })
@@ -81,7 +77,7 @@ describe("Sync.run", function()
         store:setConfig("download_dir", "/Komga")
         store:subscribe("s1")
         store:upsertBook({ id = "b1", seriesId = "s1", pageCount = 10, syncedPage = 1, syncedTs = 100 })
-        local api = fake_api({ unread = {}, books = { b1 = { id = "b1", remote = nil } } })
+        local api = fake_api({ series = { s1 = { { id = "b1", seriesId = "s1", remote = nil } } } })
         local tracker = fake_tracker({ b1 = { page = 4, ts = 500 } })
         Sync.run({ api = api, store = store, tracker = tracker, fs = H.fake_fs(), now = function() return 1000 end })
 
@@ -96,8 +92,8 @@ describe("Sync.run", function()
         store:subscribe("s1")
         store:upsertBook({ id = "b1", seriesId = "s1", pageCount = 10, filePath = "/Komga/S/V.cbz",
             syncedPage = 10, syncedTs = 100, completed = true })
-        local api = fake_api({ unread = {}, books = { b1 = { id = "b1",
-            remote = { page = 10, completed = true, lastModified = "2024-01-15T10:30:00Z" } } } })
+        local api = fake_api({ series = { s1 = { { id = "b1", seriesId = "s1",
+            remote = { page = 10, completed = true, lastModified = "2024-01-15T10:30:00Z" } } } } })
         local fs = H.fake_fs()
         Sync.run({ api = api, store = store, tracker = fake_tracker({}), fs = fs, now = function() return 1000 end })
 
@@ -112,8 +108,7 @@ describe("Sync.run", function()
         store:upsertBook({ id = "keep", seriesId = "s1", filePath = "/Komga/A/1.cbz", pageCount = 5 })
         store:upsertBook({ id = "drop", seriesId = "s2", filePath = "/Komga/B/1.cbz", pageCount = 5 })
         local fs = H.fake_fs()
-        local api = fake_api({ unread = {}, books = {
-            keep = { id = "keep", remote = nil }, drop = { id = "drop", remote = nil } } })
+        local api = fake_api({ series = { s1 = { { id = "keep", seriesId = "s1", remote = nil } } } })
         Sync.run({ api = api, store = store, tracker = fake_tracker({}), fs = fs, now = function() return 1 end })
 
         assert.is_not_nil(store:getBook("keep"))
@@ -124,7 +119,7 @@ describe("Sync.run", function()
     it("records the last sync timestamp", function()
         local store = Store.new(H.fake_backend())
         store:setConfig("download_dir", "/Komga")
-        Sync.run({ api = fake_api({ unread = {} }), store = store,
+        Sync.run({ api = fake_api({}), store = store,
             tracker = fake_tracker({}), fs = H.fake_fs(), now = function() return 4242 end })
         assert.equals(4242, store:lastSyncTs())
     end)

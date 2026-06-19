@@ -5,39 +5,40 @@ local Time = require("komga.time")
 
 local Sync = {}
 
--- progress(text) -> false means the user asked to stop. Returns false if aborted.
-local function downloadNew(api, store, fs, progress)
+-- Download books that aren't in the manifest yet and aren't already finished on
+-- Komga. `seriesBooks` is seriesId -> list of normalized books (pre-fetched).
+-- progress(text) -> false means the user asked to stop.
+local function downloadNew(api, store, fs, seriesBooks, progress)
     local dir = store:config("download_dir")
-    for _, seriesId in ipairs(store:subscriptions()) do
-        local unread = api:unread_books(seriesId)
-        for _, b in ipairs(Diff.to_download(unread, store:books())) do
-            if progress and progress(string.format("downloading %s", b.title or "")) == false then
-                return false
-            end
-            local path = Paths.book_path(dir, b.seriesName, b.title)
-            fs.mkdir(Paths.parent(path))
-            local ok = api:download_book(b.id, path .. ".part")
-            if ok then
-                fs.rename(path .. ".part", path)
-                store:upsertBook({
-                    id = b.id, seriesId = b.seriesId, seriesName = b.seriesName,
-                    title = b.title, filePath = path, pageCount = b.pageCount,
-                    syncedPage = nil, syncedTs = 0, completed = false,
-                })
+    for _, books in pairs(seriesBooks) do
+        for _, b in ipairs(books) do
+            if not store:getBook(b.id) and not (b.remote and b.remote.completed) then
+                if progress and progress(string.format("downloading %s", b.title or "")) == false then
+                    return false
+                end
+                local path = Paths.book_path(dir, b.seriesName, b.title)
+                fs.mkdir(Paths.parent(path))
+                if api:download_book(b.id, path .. ".part") then
+                    fs.rename(path .. ".part", path)
+                    store:upsertBook({
+                        id = b.id, seriesId = b.seriesId, seriesName = b.seriesName,
+                        title = b.title, filePath = path, pageCount = b.pageCount,
+                        syncedPage = nil, syncedTs = 0, completed = false,
+                    })
+                end
             end
         end
     end
     return true
 end
 
-local function reconcileOne(api, store, tracker, log, id, rec)
-    local book = api:get_book(id)
+local function reconcileOne(api, store, tracker, log, id, rec, remoteBook)
     local remote = nil
-    if book and book.remote then
+    if remoteBook and remoteBook.remote then
         remote = {
-            page = book.remote.page,
-            completed = book.remote.completed,
-            ts = Time.parse_iso8601(book.remote.lastModified),
+            page = remoteBook.remote.page,
+            completed = remoteBook.remote.completed,
+            ts = Time.parse_iso8601(remoteBook.remote.lastModified),
         }
     end
     local localState = tracker:localState(rec)
@@ -60,18 +61,22 @@ local function reconcileOne(api, store, tracker, log, id, rec)
     return action.type
 end
 
-local function reconcileAll(api, store, tracker, log, progress)
+local function reconcileAll(api, store, tracker, log, progress, seriesBooks)
+    local remoteById = {}
+    for _, books in pairs(seriesBooks) do
+        for _, b in ipairs(books) do remoteById[b.id] = b end
+    end
     local books = store:books()
     local total = 0
     for _ in pairs(books) do total = total + 1 end
     local i, n_push, n_pull, n_noop, n_err = 0, 0, 0, 0, 0
     for id, rec in pairs(books) do
         i = i + 1
-        if progress and i % 3 == 0 then
+        if progress and i % 25 == 0 then
             if progress(string.format("syncing %d/%d", i, total)) == false then break end
         end
         -- Isolate each book so one failure can't abort the whole reconcile.
-        local ok, result = pcall(reconcileOne, api, store, tracker, log, id, rec)
+        local ok, result = pcall(reconcileOne, api, store, tracker, log, id, rec, remoteById[id])
         if not ok then
             n_err = n_err + 1
             log(string.format("reconcile ERROR %s '%s': %s", tostring(id), tostring(rec.title), tostring(result)))
@@ -121,14 +126,22 @@ end
 -- deps = { api, store, tracker, fs, now, log?, progress? }
 -- progress(text) -> false signals a user-requested stop.
 function Sync.run(deps)
+    local api, store, fs = deps.api, deps.store, deps.fs
     local log = deps.log or function() end
     local progress = deps.progress
     log("sync start")
-    Sync.purgeUnsubscribed(deps.store, deps.fs, log)
-    downloadNew(deps.api, deps.store, deps.fs, progress)
-    reconcileAll(deps.api, deps.store, deps.tracker, log, progress)
-    cleanup(deps.store, deps.fs)
-    deps.store:setLastSyncTs(deps.now())
+    Sync.purgeUnsubscribed(store, fs, log)
+    -- One bulk fetch per subscribed series (each book carries its readProgress),
+    -- so reconcile needs no per-book network calls.
+    local seriesBooks = {}
+    for _, sid in ipairs(store:subscriptions()) do
+        if progress then progress("fetching series") end
+        seriesBooks[sid] = api:series_books(sid)
+    end
+    downloadNew(api, store, fs, seriesBooks, progress)
+    reconcileAll(api, store, deps.tracker, log, progress, seriesBooks)
+    cleanup(store, fs)
+    store:setLastSyncTs(deps.now())
     log("sync done")
 end
 

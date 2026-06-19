@@ -28,8 +28,10 @@ function Api:list_series()
     return res.content
 end
 
-function Api:unread_books(seriesId)
-    local path = "/api/v1/series/" .. seriesId .. "/books?read_status=UNREAD&unpaged=true"
+-- All books in a series, each normalized (with embedded readProgress). One
+-- request returns the whole series, so reconcile needs no per-book calls.
+function Api:series_books(seriesId)
+    local path = "/api/v1/series/" .. seriesId .. "/books?unpaged=true"
     local res = self.client:get_json(path)
     if not res or not res.content then return {} end
     local out = {}
@@ -37,12 +39,6 @@ function Api:unread_books(seriesId)
         out[#out + 1] = Api.map_book(dto)
     end
     return out
-end
-
-function Api:get_book(bookId)
-    local dto = self.client:get_json("/api/v1/books/" .. bookId)
-    if not dto then return nil end
-    return Api.map_book(dto)
 end
 
 function Api:set_progress(bookId, page, completed)
