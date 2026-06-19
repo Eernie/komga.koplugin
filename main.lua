@@ -7,6 +7,7 @@ local InputDialog = require("ui/widget/inputdialog")
 local Menu = require("ui/widget/menu")
 local Trapper = require("ui/trapper")
 local Logger = require("logger")
+local NetworkMgr = require("ui/network/manager")
 local lfs = require("libs/libkoreader-lfs")
 local util = require("util")
 local _ = require("gettext")
@@ -53,15 +54,21 @@ function Komga:_api()
     return Api.new(client), client
 end
 
--- Runs the sync in-process (KOReader's network stack does not work in a forked
--- subprocess) but cooperatively: Trapper:wrap + Trapper:info yield to the UI
--- between books, so the UI stays responsive and the popup is dismissable.
+-- Ensures WiFi is up (DNS fails otherwise), then runs the sync.
 function Komga:syncNow()
     if not self.store:config("server_url") or not self.store:config("api_key") then
         UIManager:show(InfoMessage:new{ text = _("Set Komga server URL and API key first.") })
         return
     end
     if self.syncing then return end -- guard against overlapping syncs
+    NetworkMgr:runWhenOnline(function() self:_runSync() end)
+end
+
+-- Runs the sync in-process (KOReader's network stack does not work in a forked
+-- subprocess) but cooperatively: Trapper:wrap + Trapper:info yield to the UI
+-- between books, so the UI stays responsive and the popup is dismissable.
+function Komga:_runSync()
+    if self.syncing then return end
     self.syncing = true
 
     Trapper:wrap(function()
