@@ -5,6 +5,7 @@ local UIManager = require("ui/uimanager")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local Menu = require("ui/widget/menu")
+local Trapper = require("ui/trapper")
 local lfs = require("libs/libkoreader-lfs")
 local util = require("util")
 local _ = require("gettext")
@@ -37,8 +38,8 @@ local function realFs()
 end
 
 function Komga:init()
-    local path = DataStorage:getSettingsDir() .. "/komga.lua"
-    self.store = Store.new(LuaSettings:open(path))
+    self.settings_path = DataStorage:getSettingsDir() .. "/komga.lua"
+    self.store = Store.new(LuaSettings:open(self.settings_path))
     if not self.store:config("download_dir") then
         self.store:setConfig("download_dir", DataStorage:getDataDir() .. "/komga")
     end
@@ -51,26 +52,48 @@ function Komga:_api()
     return Api.new(client), client
 end
 
+-- Runs the sync in a forked subprocess so the (single-threaded) UI never
+-- blocks on network I/O or downloads. Shows an interruptible popup; on
+-- completion the parent reloads settings the subprocess wrote to disk.
 function Komga:syncNow()
     if not self.store:config("server_url") or not self.store:config("api_key") then
         UIManager:show(InfoMessage:new{ text = _("Set Komga server URL and API key first.") })
         return
     end
-    UIManager:show(InfoMessage:new{ text = _("Komga: syncing…"), timeout = 2 })
-    local api = self:_api()
-    local ok, err = pcall(function()
-        Sync.run({
-            api = api, store = self.store, tracker = self.tracker,
-            fs = realFs(), now = function() return os.time() end,
-        })
+    if self.syncing then return end -- guard against overlapping syncs
+    self.syncing = true
+    local settings_path = self.settings_path
+
+    Trapper:wrap(function()
+        local completed, result = Trapper:dismissableRunInSubprocess(function()
+            local ok, err = pcall(function()
+                Sync.run({
+                    api = self:_api(), store = self.store, tracker = self.tracker,
+                    fs = realFs(), now = function() return os.time() end,
+                })
+            end)
+            return ok and "ok" or ("err:" .. tostring(err))
+        end, _("Komga: syncing… (tap to interrupt)"))
+
+        self.syncing = false
+        if not completed then
+            UIManager:show(InfoMessage:new{ text = _("Komga: sync interrupted.") })
+            return
+        end
+        -- Re-read settings (manifest, last sync) the subprocess flushed to disk.
+        self.store = Store.new(LuaSettings:open(settings_path))
+        if type(result) == "string" and result:sub(1, 4) == "err:" then
+            UIManager:show(InfoMessage:new{ text = _("Komga: sync failed: ") .. result:sub(5) })
+        else
+            UIManager:show(InfoMessage:new{ text = _("Komga: sync complete.") })
+        end
     end)
-    local msg = ok and _("Komga: sync complete.") or (_("Komga: sync failed: ") .. tostring(err))
-    UIManager:show(InfoMessage:new{ text = msg })
 end
 
 -- Fires whenever WiFi connects (per the "every WiFi connect" decision).
+-- Deferred so it never blocks startup; the sync itself runs in a subprocess.
 function Komga:onNetworkConnected()
-    self:syncNow()
+    UIManager:scheduleIn(3, function() self:syncNow() end)
 end
 
 function Komga:_promptValue(title, key)
