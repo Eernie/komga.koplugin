@@ -2,6 +2,7 @@ local http = require("socket.http")
 local https = require("ssl.https")
 local ltn12 = require("ltn12")
 local JSON = require("rapidjson")
+local logger = require("logger")
 local JsonUtil = require("komga.json_util")
 
 local Client = {}
@@ -44,6 +45,7 @@ end
 function Client:get_json(path)
     local status, body = self:_request("GET", path)
     if type(status) ~= "number" or status < 200 or status >= 300 then
+        logger.info("KOMGA http GET " .. path .. " -> " .. tostring(status))
         return nil, tostring(status)
     end
     local ok, decoded = pcall(JSON.decode, body)
@@ -55,6 +57,7 @@ end
 function Client:patch_json(path, tbl)
     local status = self:_request("PATCH", path, tbl)
     if type(status) ~= "number" or status < 200 or status >= 300 then
+        logger.info("KOMGA http PATCH " .. path .. " -> " .. tostring(status))
         return false, tostring(status)
     end
     return true

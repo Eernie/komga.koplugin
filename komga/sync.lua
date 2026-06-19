@@ -5,11 +5,15 @@ local Time = require("komga.time")
 
 local Sync = {}
 
-local function downloadNew(api, store, fs)
+-- progress(text) -> false means the user asked to stop. Returns false if aborted.
+local function downloadNew(api, store, fs, progress)
     local dir = store:config("download_dir")
     for _, seriesId in ipairs(store:subscriptions()) do
         local unread = api:unread_books(seriesId)
         for _, b in ipairs(Diff.to_download(unread, store:books())) do
+            if progress and progress(string.format("downloading %s", b.title or "")) == false then
+                return false
+            end
             local path = Paths.book_path(dir, b.seriesName, b.title)
             fs.mkdir(Paths.parent(path))
             local ok = api:download_book(b.id, path .. ".part")
@@ -23,6 +27,7 @@ local function downloadNew(api, store, fs)
             end
         end
     end
+    return true
 end
 
 local function reconcileOne(api, store, tracker, log, id, rec)
@@ -55,9 +60,16 @@ local function reconcileOne(api, store, tracker, log, id, rec)
     return action.type
 end
 
-local function reconcileAll(api, store, tracker, log)
-    local n_push, n_pull, n_noop, n_err = 0, 0, 0, 0
-    for id, rec in pairs(store:books()) do
+local function reconcileAll(api, store, tracker, log, progress)
+    local books = store:books()
+    local total = 0
+    for _ in pairs(books) do total = total + 1 end
+    local i, n_push, n_pull, n_noop, n_err = 0, 0, 0, 0, 0
+    for id, rec in pairs(books) do
+        i = i + 1
+        if progress and i % 3 == 0 then
+            if progress(string.format("syncing %d/%d", i, total)) == false then break end
+        end
         -- Isolate each book so one failure can't abort the whole reconcile.
         local ok, result = pcall(reconcileOne, api, store, tracker, log, id, rec)
         if not ok then
@@ -84,12 +96,14 @@ local function cleanup(store, fs)
     end
 end
 
--- deps = { api, store, tracker, fs, now, log? }
+-- deps = { api, store, tracker, fs, now, log?, progress? }
+-- progress(text) -> false signals a user-requested stop.
 function Sync.run(deps)
     local log = deps.log or function() end
+    local progress = deps.progress
     log("sync start")
-    downloadNew(deps.api, deps.store, deps.fs)
-    reconcileAll(deps.api, deps.store, deps.tracker, log)
+    downloadNew(deps.api, deps.store, deps.fs, progress)
+    reconcileAll(deps.api, deps.store, deps.tracker, log, progress)
     cleanup(deps.store, deps.fs)
     deps.store:setLastSyncTs(deps.now())
     log("sync done")
