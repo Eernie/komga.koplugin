@@ -73,7 +73,7 @@ function Komga:syncNow()
                 })
             end)
             return ok and "ok" or ("err:" .. tostring(err))
-        end, _("Komga: syncing… (tap to interrupt)"))
+        end, _("Komga: syncing… (tap to interrupt)"), true)
 
         self.syncing = false
         if not completed then
