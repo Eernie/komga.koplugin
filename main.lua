@@ -133,11 +133,11 @@ function Komga:onCloseDocument()
         local ok, err = pcall(function()
             Api.new(Client.new(server_url, api_key)):set_progress(bookId, page, completed)
         end)
-        Logger.info("KOMGA close-push book=" .. tostring(bookId) .. " page=" .. tostring(page)
-            .. " ok=" .. tostring(ok) .. " err=" .. tostring(err))
+        if not ok then
+            Logger.info("KOMGA close-push failed book=" .. tostring(bookId) .. " err=" .. tostring(err))
+        end
     end
 
-    Logger.info("KOMGA onCloseDocument: managed book=" .. tostring(bookId) .. " page=" .. tostring(page))
     if NetworkMgr:isOnline() then
         push()
     else
