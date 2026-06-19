@@ -32,7 +32,7 @@ local function downloadNew(api, store, fs, seriesBooks, progress)
     return true
 end
 
-local function reconcileOne(api, store, tracker, log, id, rec, remoteBook)
+local function reconcileOne(api, store, tracker, id, rec, remoteBook)
     local remote = nil
     if remoteBook and remoteBook.remote then
         remote = {
@@ -43,13 +43,6 @@ local function reconcileOne(api, store, tracker, log, id, rec, remoteBook)
     end
     local localState = tracker:localState(rec)
     local action = Reconcile.decide(rec, localState, remote)
-    if localState or remote then
-        log(string.format("reconcile %s '%s': local=%s@%s remote=%s@%s synced=%s -> %s",
-            tostring(id), tostring(rec.title),
-            localState and tostring(localState.page) or "-", localState and tostring(localState.ts) or "-",
-            remote and tostring(remote.page) or "-", remote and tostring(remote.ts) or "-",
-            tostring(rec.syncedTs), action.type))
-    end
     if action.type == "push" then
         if api:set_progress(id, action.page, action.completed) then
             store:markSynced(id, { page = action.page, ts = localState.ts, completed = action.completed })
@@ -76,7 +69,7 @@ local function reconcileAll(api, store, tracker, log, progress, seriesBooks)
             if progress(string.format("syncing %d/%d", i, total)) == false then break end
         end
         -- Isolate each book so one failure can't abort the whole reconcile.
-        local ok, result = pcall(reconcileOne, api, store, tracker, log, id, rec, remoteById[id])
+        local ok, result = pcall(reconcileOne, api, store, tracker, id, rec, remoteById[id])
         if not ok then
             n_err = n_err + 1
             log(string.format("reconcile ERROR %s '%s': %s", tostring(id), tostring(rec.title), tostring(result)))
