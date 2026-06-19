@@ -86,6 +86,28 @@ local function reconcileAll(api, store, tracker, log, progress)
     log(string.format("reconcile summary: push=%d pull=%d noop=%d err=%d", n_push, n_pull, n_noop, n_err))
 end
 
+-- Remove books (manifest record + local file + sidecar) whose series is no
+-- longer subscribed. Keeps the manifest in sync with the subscription set, so
+-- reconcile never wastes time on (or re-creates progress for) dropped series.
+function Sync.purgeUnsubscribed(store, fs, log)
+    log = log or function() end
+    local subscribed = {}
+    for _, sid in ipairs(store:subscriptions()) do subscribed[sid] = true end
+    local removed = 0
+    for id, rec in pairs(store:books()) do
+        if not subscribed[rec.seriesId] then
+            if rec.filePath then
+                fs.delete(rec.filePath)
+                fs.delete(Paths.sidecar_dir(rec.filePath))
+            end
+            store:removeBook(id)
+            removed = removed + 1
+        end
+    end
+    if removed > 0 then log(string.format("purged %d books from unsubscribed series", removed)) end
+    return removed
+end
+
 local function cleanup(store, fs)
     for id, rec in pairs(store:books()) do
         if rec.completed and rec.syncedPage and rec.pageCount and rec.syncedPage >= rec.pageCount then
@@ -102,6 +124,7 @@ function Sync.run(deps)
     local log = deps.log or function() end
     local progress = deps.progress
     log("sync start")
+    Sync.purgeUnsubscribed(deps.store, deps.fs, log)
     downloadNew(deps.api, deps.store, deps.fs, progress)
     reconcileAll(deps.api, deps.store, deps.tracker, log, progress)
     cleanup(deps.store, deps.fs)

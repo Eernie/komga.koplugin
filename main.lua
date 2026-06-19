@@ -10,6 +10,7 @@ local Logger = require("logger")
 local NetworkMgr = require("ui/network/manager")
 local lfs = require("libs/libkoreader-lfs")
 local util = require("util")
+local ffiUtil = require("ffi/util")
 local _ = require("gettext")
 
 local Store = require("komga.store")
@@ -31,7 +32,7 @@ local function realFs()
         rename = function(a, b) os.rename(a, b) end,
         delete = function(p)
             if lfs.attributes(p, "mode") == "directory" then
-                util.purgeDir(p)
+                ffiUtil.purgeDir(p) -- recursive; util.purgeDir does not exist
             else
                 os.remove(p)
             end
@@ -126,6 +127,8 @@ function Komga:_manageSeries()
             callback = function()
                 if self.store:isSubscribed(s.id) then
                     self.store:unsubscribe(s.id)
+                    -- Drop its downloaded books + files right away.
+                    Sync.purgeUnsubscribed(self.store, realFs())
                 else
                     self.store:subscribe(s.id)
                 end

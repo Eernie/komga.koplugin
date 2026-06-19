@@ -62,6 +62,7 @@ describe("Sync.run", function()
     it("pulls remote progress for a book changed only on the server", function()
         local store = Store.new(H.fake_backend())
         store:setConfig("download_dir", "/Komga")
+        store:subscribe("s1")
         store:upsertBook({ id = "b1", seriesId = "s1", seriesName = "Saga", title = "V1",
             filePath = "/Komga/Saga/V1.cbz", pageCount = 10, syncedPage = 1, syncedTs = 100 })
         local api = fake_api({
@@ -78,7 +79,8 @@ describe("Sync.run", function()
     it("pushes local progress for a book changed only on the device", function()
         local store = Store.new(H.fake_backend())
         store:setConfig("download_dir", "/Komga")
-        store:upsertBook({ id = "b1", pageCount = 10, syncedPage = 1, syncedTs = 100 })
+        store:subscribe("s1")
+        store:upsertBook({ id = "b1", seriesId = "s1", pageCount = 10, syncedPage = 1, syncedTs = 100 })
         local api = fake_api({ unread = {}, books = { b1 = { id = "b1", remote = nil } } })
         local tracker = fake_tracker({ b1 = { page = 4, ts = 500 } })
         Sync.run({ api = api, store = store, tracker = tracker, fs = H.fake_fs(), now = function() return 1000 end })
@@ -91,7 +93,8 @@ describe("Sync.run", function()
     it("deletes completed-and-synced books and removes them from the manifest", function()
         local store = Store.new(H.fake_backend())
         store:setConfig("download_dir", "/Komga")
-        store:upsertBook({ id = "b1", pageCount = 10, filePath = "/Komga/S/V.cbz",
+        store:subscribe("s1")
+        store:upsertBook({ id = "b1", seriesId = "s1", pageCount = 10, filePath = "/Komga/S/V.cbz",
             syncedPage = 10, syncedTs = 100, completed = true })
         local api = fake_api({ unread = {}, books = { b1 = { id = "b1",
             remote = { page = 10, completed = true, lastModified = "2024-01-15T10:30:00Z" } } } })
@@ -100,6 +103,22 @@ describe("Sync.run", function()
 
         assert.is_not_nil(find_call(fs.calls, "delete", "path", "/Komga/S/V.cbz"))
         assert.is_nil(store:getBook("b1"))
+    end)
+
+    it("purges books from unsubscribed series (manifest + files) on sync", function()
+        local store = Store.new(H.fake_backend())
+        store:setConfig("download_dir", "/Komga")
+        store:subscribe("s1")
+        store:upsertBook({ id = "keep", seriesId = "s1", filePath = "/Komga/A/1.cbz", pageCount = 5 })
+        store:upsertBook({ id = "drop", seriesId = "s2", filePath = "/Komga/B/1.cbz", pageCount = 5 })
+        local fs = H.fake_fs()
+        local api = fake_api({ unread = {}, books = {
+            keep = { id = "keep", remote = nil }, drop = { id = "drop", remote = nil } } })
+        Sync.run({ api = api, store = store, tracker = fake_tracker({}), fs = fs, now = function() return 1 end })
+
+        assert.is_not_nil(store:getBook("keep"))
+        assert.is_nil(store:getBook("drop"))
+        assert.is_not_nil(find_call(fs.calls, "delete", "path", "/Komga/B/1.cbz"))
     end)
 
     it("records the last sync timestamp", function()
