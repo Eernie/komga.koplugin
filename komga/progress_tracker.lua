@@ -55,6 +55,8 @@ function Tracker:applyReadingDirection(filePath, direction)
         ds:saveSetting("kopt_page_scroll", 1)       -- continuous scroll
         ds:saveSetting("kopt_zoom_mode_genus", 4)   -- page
         ds:saveSetting("kopt_zoom_mode_type", 1)    -- width (fit-width)
+        ds:saveSetting("kopt_page_gap_height", 0)   -- seamless: no gap between pages
+        ds:saveSetting("show_overlap_enable", true) -- keep some overlap when scrolling
     else
         return -- LEFT_TO_RIGHT / unknown: leave defaults, nothing to write
     end
