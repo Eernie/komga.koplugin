@@ -59,13 +59,19 @@ local function reconcileOne(api, store, tracker, id, rec, remoteBook)
     end
     local localState = tracker:localState(rec)
     local action = Reconcile.decide(rec, localState, remote)
+    local localTs = localState and localState.ts or 0
+    local remoteTs = remote and remote.ts or 0
     if action.type == "push" then
         if api:set_progress(id, action.page, action.completed) then
-            store:markSynced(id, { page = action.page, ts = localState.ts, completed = action.completed })
+            store:markSynced(id, { page = action.page, ts = localTs, completed = action.completed })
         end
     elseif action.type == "pull" then
         tracker:applyPage(rec, action.page)
-        store:markSynced(id, { page = action.page, ts = remote.ts, completed = action.completed })
+        store:markSynced(id, { page = action.page, ts = remoteTs, completed = action.completed })
+    elseif action.type == "sync" then
+        -- Both sides already agree; just record the baseline (no network, no
+        -- sidecar write) so a finished book gets marked and later cleaned up.
+        store:markSynced(id, { page = action.page, ts = math.max(localTs, remoteTs), completed = action.completed })
     end
     return action.type
 end
