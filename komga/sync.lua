@@ -8,11 +8,24 @@ local Sync = {}
 -- Download books that aren't in the manifest yet and aren't already finished on
 -- Komga. `seriesBooks` is seriesId -> list of normalized books (pre-fetched).
 -- progress(text) -> false means the user asked to stop.
+-- Count books already on the device for a series that aren't finished yet.
+local function unreadOnDevice(store, seriesId)
+    local n = 0
+    for _, rec in pairs(store:books()) do
+        if rec.seriesId == seriesId and not rec.completed then n = n + 1 end
+    end
+    return n
+end
+
 local function downloadNew(api, store, fs, seriesBooks, progress)
     local dir = store:config("download_dir")
-    for _, books in pairs(seriesBooks) do
+    -- 0 (or unset) = no limit; otherwise keep at most N unread books per series.
+    local limit = tonumber(store:config("max_unread_per_series")) or 0
+    for seriesId, books in pairs(seriesBooks) do
+        local kept = limit > 0 and unreadOnDevice(store, seriesId) or 0
         for _, b in ipairs(books) do
             if not store:getBook(b.id) and not (b.remote and b.remote.completed) then
+                if limit > 0 and kept >= limit then break end -- series cap reached
                 if progress and progress(string.format("downloading %s", b.title or "")) == false then
                     return false
                 end
@@ -25,6 +38,7 @@ local function downloadNew(api, store, fs, seriesBooks, progress)
                         title = b.title, filePath = path, pageCount = b.pageCount,
                         syncedPage = nil, syncedTs = 0, completed = false,
                     })
+                    kept = kept + 1
                 end
             end
         end

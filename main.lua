@@ -160,6 +160,9 @@ function Komga:_settingsDialog()
               hint = "/mnt/onboard/komga" },
             { description = _("Min hours between WiFi syncs"), text = tostring(interval_hours),
               input_type = "number", hint = "24" },
+            { description = _("Max unread per series (0 = all)"),
+              text = tostring(self.store:config("max_unread_per_series") or 0),
+              input_type = "number", hint = "0" },
         },
         buttons = {{
             { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
@@ -170,6 +173,7 @@ function Komga:_settingsDialog()
                 self.store:setConfig("download_dir", f[3])
                 local hours = tonumber(f[4]) or 24
                 self.store:setConfig("sync_interval", math.floor(hours * 3600))
+                self.store:setConfig("max_unread_per_series", math.floor(tonumber(f[5]) or 0))
                 UIManager:close(dialog)
                 UIManager:show(InfoMessage:new{ text = _("Komga settings saved.") })
             end },

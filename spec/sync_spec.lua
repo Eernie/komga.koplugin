@@ -116,6 +116,45 @@ describe("Sync.run", function()
         assert.is_not_nil(find_call(fs.calls, "delete", "path", "/Komga/B/1.cbz"))
     end)
 
+    it("caps downloads at max_unread_per_series (next N in order)", function()
+        local store = Store.new(H.fake_backend())
+        store:setConfig("download_dir", "/Komga")
+        store:setConfig("max_unread_per_series", 2)
+        store:subscribe("s1")
+        local books = {}
+        for i = 1, 5 do
+            books[i] = { id = "b" .. i, seriesId = "s1", seriesName = "S", title = "V" .. i, pageCount = 10, remote = nil }
+        end
+        local api = fake_api({ series = { s1 = books } })
+        Sync.run({ api = api, store = store, tracker = fake_tracker({}), fs = H.fake_fs(), now = function() return 1 end })
+
+        local dl = 0
+        for _, c in ipairs(api.calls) do if c.op == "download_book" then dl = dl + 1 end end
+        assert.equals(2, dl)
+        assert.is_not_nil(store:getBook("b1"))
+        assert.is_not_nil(store:getBook("b2"))
+        assert.is_nil(store:getBook("b3"))
+    end)
+
+    it("refills toward the cap as earlier books are finished/removed", function()
+        local store = Store.new(H.fake_backend())
+        store:setConfig("download_dir", "/Komga")
+        store:setConfig("max_unread_per_series", 2)
+        store:subscribe("s1")
+        -- already one unread on device -> only one more should download
+        store:upsertBook({ id = "b1", seriesId = "s1", title = "V1", filePath = "/Komga/S/V1.cbz", pageCount = 10, completed = false })
+        local books = {}
+        for i = 1, 5 do
+            books[i] = { id = "b" .. i, seriesId = "s1", seriesName = "S", title = "V" .. i, pageCount = 10, remote = nil }
+        end
+        local api = fake_api({ series = { s1 = books } })
+        Sync.run({ api = api, store = store, tracker = fake_tracker({}), fs = H.fake_fs(), now = function() return 1 end })
+
+        local dl = 0
+        for _, c in ipairs(api.calls) do if c.op == "download_book" then dl = dl + 1 end end
+        assert.equals(1, dl)
+    end)
+
     it("records the last sync timestamp", function()
         local store = Store.new(H.fake_backend())
         store:setConfig("download_dir", "/Komga")

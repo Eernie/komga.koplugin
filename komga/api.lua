@@ -31,7 +31,8 @@ end
 -- All books in a series, each normalized (with embedded readProgress). One
 -- request returns the whole series, so reconcile needs no per-book calls.
 function Api:series_books(seriesId)
-    local path = "/api/v1/series/" .. seriesId .. "/books?unpaged=true"
+    -- sorted by book number so "next N unread" follows reading order
+    local path = "/api/v1/series/" .. seriesId .. "/books?unpaged=true&sort=metadata.numberSort,asc"
     local res = self.client:get_json(path)
     if not res or not res.content then return {} end
     local out = {}

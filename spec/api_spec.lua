@@ -39,7 +39,7 @@ describe("Api endpoints", function()
 
     it("lists all books in a series as normalized books with progress", function()
         local client = H.fake_client({
-            ["/api/v1/series/s1/books?unpaged=true"] = { content = {
+            ["/api/v1/series/s1/books?unpaged=true&sort=metadata.numberSort,asc"] = { content = {
                 { id = "b1", seriesId = "s1", name = "n", media = { pagesCount = 5 } },
                 { id = "b2", seriesId = "s1", name = "m", media = { pagesCount = 8 },
                   readProgress = { page = 3, completed = false, lastModified = "2024-01-15T10:30:00Z" } },
