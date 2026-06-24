@@ -39,4 +39,26 @@ function Tracker:applyPage(rec, page)
     ds:flush()
 end
 
+-- Pre-configure the reader for a freshly downloaded book based on the Komga
+-- series readingDirection, by writing the matching keys into its sidecar:
+--   RIGHT_TO_LEFT  -> right-to-left page turning (manga)
+--   WEBTOON/VERTICAL -> continuous vertical scroll, fit-width (webtoon)
+-- Only touches a book with no sidecar yet, so it never overrides a book the
+-- user has already opened and adjusted.
+function Tracker:applyReadingDirection(filePath, direction)
+    if not direction then return end
+    if DocSettings:hasSidecarFile(filePath) then return end
+    local ds = DocSettings:open(filePath)
+    if direction == "RIGHT_TO_LEFT" then
+        ds:saveSetting("inverse_reading_order", true)
+    elseif direction == "WEBTOON" or direction == "VERTICAL" then
+        ds:saveSetting("kopt_page_scroll", 1)       -- continuous scroll
+        ds:saveSetting("kopt_zoom_mode_genus", 4)   -- page
+        ds:saveSetting("kopt_zoom_mode_type", 1)    -- width (fit-width)
+    else
+        return -- LEFT_TO_RIGHT / unknown: leave defaults, nothing to write
+    end
+    ds:flush()
+end
+
 return Tracker

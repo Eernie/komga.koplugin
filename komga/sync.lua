@@ -17,12 +17,13 @@ local function unreadOnDevice(store, seriesId)
     return n
 end
 
-local function downloadNew(api, store, fs, seriesBooks, progress)
+local function downloadNew(api, store, fs, seriesBooks, directions, prepareReader, progress)
     local dir = store:config("download_dir")
     -- 0 (or unset) = no limit; otherwise keep at most N unread books per series.
     local limit = tonumber(store:config("max_unread_per_series")) or 0
     for seriesId, books in pairs(seriesBooks) do
         local kept = limit > 0 and unreadOnDevice(store, seriesId) or 0
+        local direction = directions and directions[seriesId]
         for _, b in ipairs(books) do
             if not store:getBook(b.id) and not (b.remote and b.remote.completed) then
                 if limit > 0 and kept >= limit then break end -- series cap reached
@@ -38,6 +39,7 @@ local function downloadNew(api, store, fs, seriesBooks, progress)
                         title = b.title, filePath = path, pageCount = b.pageCount,
                         syncedPage = nil, syncedTs = 0, completed = false,
                     })
+                    if prepareReader then prepareReader(path, direction) end
                     kept = kept + 1
                 end
             end
@@ -145,7 +147,12 @@ function Sync.run(deps)
         if progress then progress("fetching series") end
         seriesBooks[sid] = api:series_books(sid)
     end
-    downloadNew(api, store, fs, seriesBooks, progress)
+    -- Reading direction per series (manga RTL / webtoon scroll) for reader setup.
+    local directions = {}
+    for _, s in ipairs(api:list_series()) do
+        directions[s.id] = s.metadata and s.metadata.readingDirection
+    end
+    downloadNew(api, store, fs, seriesBooks, directions, deps.prepareReader, progress)
     reconcileAll(api, store, deps.tracker, log, progress, seriesBooks)
     cleanup(store, fs)
     store:setLastSyncTs(deps.now())

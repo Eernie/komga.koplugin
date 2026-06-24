@@ -80,6 +80,8 @@ function Komga:_runSync()
                 log = function(m) Logger.info("KOMGA " .. m) end,
                 -- Trapper:info yields to the UI and returns false if dismissed.
                 progress = function(text) return Trapper:info(_("Komga: ") .. text) end,
+                -- Pre-configure manga (RTL) / webtoon (scroll) on fresh downloads.
+                prepareReader = function(path, dir) self.tracker:applyReadingDirection(path, dir) end,
             })
         end)
         Trapper:clear()

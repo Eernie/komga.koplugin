@@ -7,6 +7,9 @@ local H = require("spec.helpers")
 local function fake_api(opts)
     return {
         calls = {},
+        list_series = function(self)
+            return opts.series_list or {}
+        end,
         series_books = function(self, seriesId)
             table.insert(self.calls, { op = "series_books", seriesId = seriesId })
             return (opts.series and opts.series[seriesId]) or {}
@@ -153,6 +156,24 @@ describe("Sync.run", function()
         local dl = 0
         for _, c in ipairs(api.calls) do if c.op == "download_book" then dl = dl + 1 end end
         assert.equals(1, dl)
+    end)
+
+    it("prepares reader settings from the series reading direction on download", function()
+        local store = Store.new(H.fake_backend())
+        store:setConfig("download_dir", "/Komga")
+        store:subscribe("s1")
+        local api = fake_api({
+            series = { s1 = { { id = "b1", seriesId = "s1", seriesName = "Manga", title = "V1", pageCount = 10 } } },
+            series_list = { { id = "s1", metadata = { readingDirection = "RIGHT_TO_LEFT" } } },
+        })
+        local prepared = {}
+        Sync.run({ api = api, store = store, tracker = fake_tracker({}), fs = H.fake_fs(),
+            now = function() return 1 end,
+            prepareReader = function(path, dir) prepared[#prepared + 1] = { path = path, dir = dir } end })
+
+        assert.equals(1, #prepared)
+        assert.equals("RIGHT_TO_LEFT", prepared[1].dir)
+        assert.equals("/Komga/Manga/V1.cbz", prepared[1].path)
     end)
 
     it("records the last sync timestamp", function()
