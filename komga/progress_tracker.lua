@@ -52,10 +52,19 @@ function Tracker:applyReadingDirection(filePath, direction)
     if direction == "RIGHT_TO_LEFT" then
         ds:saveSetting("inverse_reading_order", true)
     elseif direction == "WEBTOON" or direction == "VERTICAL" then
+        -- Webtoon/manhwa: continuous vertical scroll through the tall strip.
+        -- "rows" zoom (genus 1) fits page width and splits the height into rows,
+        -- which is the only mode where zoom overlap applies (genus < 3). The
+        -- ~50% tile overlap + dim page-overlap keeps context when scrolling --
+        -- matching the look the user tuned by hand on-device.
         ds:saveSetting("kopt_page_scroll", 1)       -- continuous scroll
-        ds:saveSetting("kopt_zoom_mode_genus", 4)   -- page
-        ds:saveSetting("kopt_zoom_mode_type", 1)    -- width (fit-width)
+        ds:saveSetting("kopt_zoom_mode_genus", 1)   -- rows (fit width, split height)
+        ds:saveSetting("kopt_zoom_mode_type", 1)    -- width (ignored for rows; harmless)
+        ds:saveSetting("kopt_zoom_range_number", 1) -- ~one row tall -> fit-width scroll
+        ds:saveSetting("kopt_zoom_overlap_h", 48)   -- ~50% overlap between tiles
+        ds:saveSetting("kopt_zoom_overlap_v", 48)   -- ~50% overlap between tiles
         ds:saveSetting("kopt_page_gap_height", 0)   -- seamless: no gap between pages
+        ds:saveSetting("page_overlap_style", "dim") -- shade the overlapped strip
         ds:saveSetting("show_overlap_enable", true) -- keep some overlap when scrolling
     else
         return -- LEFT_TO_RIGHT / unknown: leave defaults, nothing to write
